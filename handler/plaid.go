@@ -16,10 +16,6 @@ type SetAccessTokenRequest struct {
 	PublicToken string `json:"publicToken" binding:"required"`
 }
 
-type TransactionsRequest struct {
-	FirebaseUID string `json:"firebaseUID" binding:"required"`
-}
-
 func CreateLinkToken(c *gin.Context) {
 	request := plaid.NewLinkTokenCreateRequest(
 		"Personal Finance Backend",
@@ -68,13 +64,14 @@ func SetAccessToken(c *gin.Context) {
 }
 
 func GetTransactions(c *gin.Context) {
-	var payload TransactionsRequest
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	firebaseUser, exists := c.Get("firebase_user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "firebase user not found in context"})
 		return
 	}
+	user := firebaseUser.(*auth.VerifiedFirebaseUser)
 
-	userRecord, ok := database.DefaultStore.GetUser(payload.FirebaseUID)
+	userRecord, ok := database.DefaultStore.GetUser(user.UID)
 	if !ok || strings.TrimSpace(userRecord.PlaidAccessToken) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no plaid access token for this user"})
 		return

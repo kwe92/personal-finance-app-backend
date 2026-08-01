@@ -1,49 +1,78 @@
 package database
 
-import "sync"
+import (
+	"context"
+	"errors"
+	"log"
+
+	"personal_finance_backend/auth"
+
+	"cloud.google.com/go/firestore"
+)
 
 type UserRecord struct {
-	FirebaseUID     string
-	Email           string
-	PlaidAccessToken string
+	FirebaseUID      string `firestore:"firebaseUID"`
+	Email            string `firestore:"email"`
+	PlaidAccessToken string `firestore:"plaidAccessToken"`
+	IsPlaidLinked    bool   `firestore:"is_plaid_linked"`
 }
 
 type Store struct {
-	mu    sync.RWMutex
-	users map[string]UserRecord
+	firestoreClient *firestore.Client
 }
 
-var DefaultStore = &Store{users: make(map[string]UserRecord)}
+var DefaultStore = &Store{}
 
 func InitializeStore() {
-	DefaultStore.mu.Lock()
-	defer DefaultStore.mu.Unlock()
-	if DefaultStore.users == nil {
-		DefaultStore.users = make(map[string]UserRecord)
+	if DefaultStore.firestoreClient != nil {
+		return
 	}
-}
 
-func (s *Store) SaveUser(record UserRecord) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.users[record.FirebaseUID] = record
+	app, err := auth.GetFirebaseApp()
+	if err != nil {
+		log.Println("warning: unable to initialize Firebase app for Firestore persistence:", err)
+		return
+	}
+
+	ctx := context.Background()
+	client, err := app.Firestore(ctx)
+	if err != nil {
+		log.Println("warning: unable to initialize Firestore client:", err)
+		return
+	}
+
+	DefaultStore.firestoreClient = client
 }
 
 func (s *Store) GetUser(firebaseUID string) (UserRecord, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	user, ok := s.users[firebaseUID]
-	return user, ok
+	if s.firestoreClient == nil {
+		return UserRecord{}, false
+	}
+
+	ctx := context.Background()
+	doc, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Get(ctx)
+	if err != nil || !doc.Exists() {
+		return UserRecord{}, false
+	}
+
+	var user UserRecord
+	if err := doc.DataTo(&user); err != nil {
+		log.Println("warning: Firestore GetUser decode failed:", err)
+		return UserRecord{}, false
+	}
+
+	return user, true
 }
 
 func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	user, ok := s.users[firebaseUID]
-	if !ok {
-		user = UserRecord{FirebaseUID: firebaseUID}
+	if s.firestoreClient == nil {
+		return errors.New("firestore client not initialized")
 	}
-	user.PlaidAccessToken = accessToken
-	s.users[firebaseUID] = user
-	return nil
+
+	ctx := context.Background()
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Update(ctx, []firestore.Update{
+		{Path: "plaidAccessToken", Value: accessToken},
+		{Path: "is_plaid_linked", Value: true},
+	})
+	return err
 }

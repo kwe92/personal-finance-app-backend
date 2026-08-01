@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"personal_finance_backend/auth"
-	"personal_finance_backend/database"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,8 +24,6 @@ func VerifyFirebaseUser(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid firebase token"})
 		return
 	}
-
-	database.DefaultStore.SaveUser(database.UserRecord{FirebaseUID: user.UID, Email: user.Email})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "firebase user verified",

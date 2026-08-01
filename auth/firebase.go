@@ -75,6 +75,13 @@ func VerifyIDTokenWithFallback(ctx context.Context, rawToken string, fallbackUID
 	return VerifyIDToken(ctx, rawToken)
 }
 
+func GetFirebaseApp() (*firebase.App, error) {
+	if err := initFirebaseApp(); err != nil {
+		return nil, ErrFirebaseNotConfigured
+	}
+	return firebaseApp, nil
+}
+
 func NewAuthClient() (*firebaseauth.Client, error) {
 	if err := initFirebaseApp(); err != nil {
 		return nil, ErrFirebaseNotConfigured

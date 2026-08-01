@@ -9,6 +9,7 @@ import (
 
 func SetupRouter() *gin.Engine {
 	router := gin.Default()
+	router.Use(middleware.CORSMiddleware())
 
 	protected := router.Group("/api")
 	protected.Use(middleware.FirebaseAuthMiddleware())

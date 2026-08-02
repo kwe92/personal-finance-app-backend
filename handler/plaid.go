@@ -16,6 +16,48 @@ type SetAccessTokenRequest struct {
 	PublicToken string `json:"publicToken" binding:"required"`
 }
 
+type TransactionDTO struct {
+	Name      string  `json:"name"`
+	Category  string  `json:"category"`
+	Date      string  `json:"date"`
+	Amount    float64 `json:"amount"`
+	Recurring bool    `json:"recurring"`
+}
+
+func mapPlaidTransactions(transactions []plaid.Transaction) []TransactionDTO {
+	mappedTransactions := make([]TransactionDTO, 0, len(transactions))
+	for _, txn := range transactions {
+		category := ""
+		if len(txn.GetCategory()) > 0 {
+			category = txn.GetCategory()[0]
+		}
+		if strings.TrimSpace(category) == "" {
+			category = txn.GetMerchantName()
+		}
+		if strings.TrimSpace(category) == "" {
+			category = txn.GetName()
+		}
+		if strings.TrimSpace(category) == "" {
+			category = "Uncategorized"
+		}
+
+		date := txn.GetDate()
+		if strings.TrimSpace(date) == "" {
+			date = txn.GetAuthorizedDate()
+		}
+
+		mappedTransactions = append(mappedTransactions, TransactionDTO{
+			Name:      txn.GetName(),
+			Category:  category,
+			Date:      date,
+			Amount:    txn.GetAmount(),
+			Recurring: false,
+		})
+	}
+
+	return mappedTransactions
+}
+
 func CreateLinkToken(c *gin.Context) {
 	request := plaid.NewLinkTokenCreateRequest(
 		"Personal Finance Backend",
@@ -85,5 +127,6 @@ func GetTransactions(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"transactions": resp.GetAdded()})
+	mappedTransactions := mapPlaidTransactions(resp.GetAdded())
+	c.JSON(http.StatusOK, gin.H{"transactions": mappedTransactions})
 }

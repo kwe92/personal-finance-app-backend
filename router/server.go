@@ -19,6 +19,8 @@ func SetupRouter() *gin.Engine {
 	protected.POST("/plaid/create-link-token", handler.CreateLinkToken)
 	protected.POST("/plaid/set-access-token", handler.SetAccessToken)
 	protected.POST("/plaid/transactions", handler.GetTransactions)
+	protected.GET("/plaid/overview-summary", handler.GetOverviewSummary)
+	protected.GET("/plaid/recurring-bills", handler.GetRecurringBills)
 
 	return router
 }

@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"log"
+	"math"
 	"net/http"
 	"personal_finance_backend/auth"
 	"personal_finance_backend/database"
@@ -17,11 +19,51 @@ type SetAccessTokenRequest struct {
 }
 
 type TransactionDTO struct {
+	ID        string  `json:"id"`
 	Name      string  `json:"name"`
 	Category  string  `json:"category"`
 	Date      string  `json:"date"`
 	Amount    float64 `json:"amount"`
+	Type      string  `json:"type"`
 	Recurring bool    `json:"recurring"`
+	Frequency string  `json:"frequency,omitempty"`
+	NextDate  string  `json:"nextDate,omitempty"`
+	Status    string  `json:"status,omitempty"`
+}
+
+type OverviewSummaryDTO struct {
+	Balance  float64 `json:"balance"`
+	Income   float64 `json:"income"`
+	Expenses float64 `json:"expenses"`
+	Savings  float64 `json:"savings"`
+}
+
+func inferTransactionType(amount float64) string {
+	switch {
+	case amount < 0:
+		return "income"
+	case amount > 0:
+		return "expense"
+	default:
+		return "transfer"
+	}
+}
+
+func normalizeFrequency(frequency plaid.RecurringTransactionFrequency) string {
+	switch frequency {
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_WEEKLY:
+		return "weekly"
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_BIWEEKLY:
+		return "biweekly"
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_SEMI_MONTHLY:
+		return "semi_monthly"
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_MONTHLY:
+		return "monthly"
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_ANNUALLY:
+		return "yearly"
+	default:
+		return ""
+	}
 }
 
 func mapPlaidTransactions(transactions []plaid.Transaction) []TransactionDTO {
@@ -47,15 +89,76 @@ func mapPlaidTransactions(transactions []plaid.Transaction) []TransactionDTO {
 		}
 
 		mappedTransactions = append(mappedTransactions, TransactionDTO{
+			ID:        txn.GetTransactionId(),
 			Name:      txn.GetName(),
 			Category:  category,
 			Date:      date,
 			Amount:    txn.GetAmount(),
+			Type:      inferTransactionType(txn.GetAmount()),
 			Recurring: false,
+			Status:    "paid",
 		})
 	}
 
 	return mappedTransactions
+}
+
+func mapPlaidRecurringStreams(streams []plaid.TransactionStream) []TransactionDTO {
+	mappedStreams := make([]TransactionDTO, 0, len(streams))
+	for _, stream := range streams {
+		category := ""
+		if len(stream.GetCategory()) > 0 {
+			category = stream.GetCategory()[0]
+		}
+		if strings.TrimSpace(category) == "" {
+			category = stream.GetMerchantName()
+		}
+		if strings.TrimSpace(category) == "" {
+			category = stream.GetDescription()
+		}
+		if strings.TrimSpace(category) == "" {
+			category = "Uncategorized"
+		}
+
+		date := stream.GetLastDate()
+		if strings.TrimSpace(date) == "" {
+			date = stream.GetFirstDate()
+		}
+
+		amount := stream.LastAmount.GetAmount()
+		if amount == 0 {
+			amount = stream.AverageAmount.GetAmount()
+		}
+
+		mappedStreams = append(mappedStreams, TransactionDTO{
+			ID:        stream.GetStreamId(),
+			Name:      stream.GetDescription(),
+			Category:  category,
+			Date:      date,
+			Amount:    amount,
+			Type:      "expense",
+			Recurring: true,
+			Frequency: normalizeFrequency(stream.GetFrequency()),
+			NextDate:  date,
+			Status:    "upcoming",
+		})
+	}
+
+	return mappedStreams
+}
+
+func summarizeTransactions(transactions []plaid.Transaction) (income float64, expenses float64) {
+	for _, txn := range transactions {
+		amount := txn.GetAmount()
+		if amount < 0 {
+			income += math.Abs(amount)
+			continue
+		}
+		if amount > 0 {
+			expenses += amount
+		}
+	}
+	return income, expenses
 }
 
 func CreateLinkToken(c *gin.Context) {
@@ -129,4 +232,140 @@ func GetTransactions(c *gin.Context) {
 
 	mappedTransactions := mapPlaidTransactions(resp.GetAdded())
 	c.JSON(http.StatusOK, gin.H{"transactions": mappedTransactions})
+}
+func GetOverviewSummary(c *gin.Context) {
+	firebaseUser, exists := c.Get("firebase_user")
+	if !exists {
+		log.Printf("[ERROR GetOverviewSummary] 401 Unauthorized: firebase user not found in context")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "firebase user not found in context"})
+		return
+	}
+	user := firebaseUser.(*auth.VerifiedFirebaseUser)
+
+	userRecord, ok := database.DefaultStore.GetUser(user.UID)
+	if !ok || strings.TrimSpace(userRecord.PlaidAccessToken) == "" {
+		log.Printf("[ERROR GetOverviewSummary] 400 Bad Request: no plaid access token for UID %s", user.UID)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no plaid access token for this user"})
+		return
+	}
+
+	ctx := context.Background()
+
+	// 1. Fetch Balances
+	balanceReq := plaid.NewAccountsBalanceGetRequest(userRecord.PlaidAccessToken)
+	balanceResp, _, err := plaid_config.Client.PlaidApi.AccountsBalanceGet(ctx).AccountsBalanceGetRequest(*balanceReq).Execute()
+	if err != nil {
+		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetOverviewSummary - Balance] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error_code":    plaidErr.ErrorCode,
+				"error_message": plaidErr.ErrorMessage,
+				"error_type":    plaidErr.ErrorType,
+			})
+			return
+		}
+		log.Printf("[ERROR GetOverviewSummary - Balance]: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var currentBalance float64
+	for _, account := range balanceResp.GetAccounts() {
+		balances := account.GetBalances()
+		currentBalance += balances.GetCurrent()
+	}
+
+	// 2. Sync Transactions
+	transactionsReq := plaid.NewTransactionsSyncRequest(userRecord.PlaidAccessToken)
+	transactionsResp, _, err := plaid_config.Client.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*transactionsReq).Execute()
+	if err != nil {
+		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetOverviewSummary - TransactionsSync] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error_code":    plaidErr.ErrorCode,
+				"error_message": plaidErr.ErrorMessage,
+				"error_type":    plaidErr.ErrorType,
+			})
+			return
+		}
+		log.Printf("[ERROR GetOverviewSummary - TransactionsSync]: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	income, expenses := summarizeTransactions(transactionsResp.GetAdded())
+
+	// 3. Fetch Recurring Bills
+	recurringReq := plaid.NewTransactionsRecurringGetRequest(userRecord.PlaidAccessToken, nil)
+	recurringResp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*recurringReq).Execute()
+	if err != nil {
+		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetOverviewSummary - Recurring] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error_code":    plaidErr.ErrorCode,
+				"error_message": plaidErr.ErrorMessage,
+				"error_type":    plaidErr.ErrorType,
+			})
+			return
+		}
+		log.Printf("[ERROR GetOverviewSummary - Recurring]: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var recurringBills float64
+	for _, stream := range recurringResp.GetOutflowStreams() {
+		amount := stream.LastAmount.GetAmount()
+		if amount == 0 {
+			amount = stream.AverageAmount.GetAmount()
+		}
+		recurringBills += math.Abs(amount)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"balance":        currentBalance,
+		"income":         income,
+		"expenses":       expenses,
+		"savings":        income - expenses,
+		"recurringBills": recurringBills,
+	})
+}
+
+func GetRecurringBills(c *gin.Context) {
+	firebaseUser, exists := c.Get("firebase_user")
+	if !exists {
+		log.Printf("[ERROR GetRecurringBills] 401 Unauthorized: firebase user not found in context")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "firebase user not found in context"})
+		return
+	}
+	user := firebaseUser.(*auth.VerifiedFirebaseUser)
+
+	userRecord, ok := database.DefaultStore.GetUser(user.UID)
+	if !ok || strings.TrimSpace(userRecord.PlaidAccessToken) == "" {
+		log.Printf("[ERROR GetRecurringBills] 400 Bad Request: no plaid access token for UID %s", user.UID)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no plaid access token for this user"})
+		return
+	}
+
+	ctx := context.Background()
+	req := plaid.NewTransactionsRecurringGetRequest(userRecord.PlaidAccessToken, nil)
+
+	resp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*req).Execute()
+	if err != nil {
+		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetRecurringBills] Plaid API Error [%s]: %s (Type: %s)", plaidErr.ErrorCode, plaidErr.ErrorMessage, plaidErr.ErrorType)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error_code":    plaidErr.ErrorCode,
+				"error_message": plaidErr.ErrorMessage,
+				"error_type":    plaidErr.ErrorType,
+			})
+			return
+		}
+
+		log.Printf("[ERROR GetRecurringBills] 400 Bad Request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"recurringBills": mapPlaidRecurringStreams(resp.GetOutflowStreams())})
 }

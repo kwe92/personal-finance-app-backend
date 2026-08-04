@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log"
 	"math"
 	"net/http"
 	"personal_finance_backend/auth"
@@ -232,10 +233,10 @@ func GetTransactions(c *gin.Context) {
 	mappedTransactions := mapPlaidTransactions(resp.GetAdded())
 	c.JSON(http.StatusOK, gin.H{"transactions": mappedTransactions})
 }
-
 func GetOverviewSummary(c *gin.Context) {
 	firebaseUser, exists := c.Get("firebase_user")
 	if !exists {
+		log.Printf("[ERROR GetOverviewSummary] 401 Unauthorized: firebase user not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "firebase user not found in context"})
 		return
 	}
@@ -243,6 +244,7 @@ func GetOverviewSummary(c *gin.Context) {
 
 	userRecord, ok := database.DefaultStore.GetUser(user.UID)
 	if !ok || strings.TrimSpace(userRecord.PlaidAccessToken) == "" {
+		log.Printf("[ERROR GetOverviewSummary] 400 Bad Request: no plaid access token for UID %s", user.UID)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no plaid access token for this user"})
 		return
 	}
@@ -254,6 +256,7 @@ func GetOverviewSummary(c *gin.Context) {
 	balanceResp, _, err := plaid_config.Client.PlaidApi.AccountsBalanceGet(ctx).AccountsBalanceGetRequest(*balanceReq).Execute()
 	if err != nil {
 		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetOverviewSummary - Balance] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error_code":    plaidErr.ErrorCode,
 				"error_message": plaidErr.ErrorMessage,
@@ -261,6 +264,7 @@ func GetOverviewSummary(c *gin.Context) {
 			})
 			return
 		}
+		log.Printf("[ERROR GetOverviewSummary - Balance]: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -276,6 +280,7 @@ func GetOverviewSummary(c *gin.Context) {
 	transactionsResp, _, err := plaid_config.Client.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*transactionsReq).Execute()
 	if err != nil {
 		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetOverviewSummary - TransactionsSync] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error_code":    plaidErr.ErrorCode,
 				"error_message": plaidErr.ErrorMessage,
@@ -283,17 +288,19 @@ func GetOverviewSummary(c *gin.Context) {
 			})
 			return
 		}
+		log.Printf("[ERROR GetOverviewSummary - TransactionsSync]: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	income, expenses := summarizeTransactions(transactionsResp.GetAdded())
 
-	// 3. Fetch Recurring Bills (nil passed instead of []string{})
+	// 3. Fetch Recurring Bills
 	recurringReq := plaid.NewTransactionsRecurringGetRequest(userRecord.PlaidAccessToken, nil)
 	recurringResp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*recurringReq).Execute()
 	if err != nil {
 		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetOverviewSummary - Recurring] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error_code":    plaidErr.ErrorCode,
 				"error_message": plaidErr.ErrorMessage,
@@ -301,6 +308,7 @@ func GetOverviewSummary(c *gin.Context) {
 			})
 			return
 		}
+		log.Printf("[ERROR GetOverviewSummary - Recurring]: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -323,72 +331,10 @@ func GetOverviewSummary(c *gin.Context) {
 	})
 }
 
-// func GetOverviewSummary(c *gin.Context) {
-// 	firebaseUser, exists := c.Get("firebase_user")
-// 	if !exists {
-// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "firebase user not found in context"})
-// 		return
-// 	}
-// 	user := firebaseUser.(*auth.VerifiedFirebaseUser)
-
-// 	userRecord, ok := database.DefaultStore.GetUser(user.UID)
-// 	if !ok || strings.TrimSpace(userRecord.PlaidAccessToken) == "" {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "no plaid access token for this user"})
-// 		return
-// 	}
-
-// 	ctx := context.Background()
-
-// 	balanceReq := plaid.NewAccountsBalanceGetRequest(userRecord.PlaidAccessToken)
-// 	balanceResp, _, err := plaid_config.Client.PlaidApi.AccountsBalanceGet(ctx).AccountsBalanceGetRequest(*balanceReq).Execute()
-// 	if err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-// 		return
-// 	}
-
-// 	var currentBalance float64
-// 	for _, account := range balanceResp.GetAccounts() {
-// 		balances := account.GetBalances()
-// 		currentBalance += balances.GetCurrent()
-// 	}
-
-// 	transactionsReq := plaid.NewTransactionsSyncRequest(userRecord.PlaidAccessToken)
-// 	transactionsResp, _, err := plaid_config.Client.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*transactionsReq).Execute()
-// 	if err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-// 		return
-// 	}
-
-// 	income, expenses := summarizeTransactions(transactionsResp.GetAdded())
-
-// 	recurringReq := plaid.NewTransactionsRecurringGetRequest(userRecord.PlaidAccessToken, []string{})
-// 	recurringResp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*recurringReq).Execute()
-// 	if err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-// 		return
-// 	}
-
-// 	var recurringBills float64
-// 	for _, stream := range recurringResp.GetOutflowStreams() {
-// 		amount := stream.LastAmount.GetAmount()
-// 		if amount == 0 {
-// 			amount = stream.AverageAmount.GetAmount()
-// 		}
-// 		recurringBills += math.Abs(amount)
-// 	}
-
-// 	c.JSON(http.StatusOK, gin.H{
-// 		"balance":        currentBalance,
-// 		"income":         income,
-// 		"expenses":       expenses,
-// 		"savings":        income - expenses,
-// 		"recurringBills": recurringBills,
-// 	})
-// }
-
 func GetRecurringBills(c *gin.Context) {
 	firebaseUser, exists := c.Get("firebase_user")
 	if !exists {
+		log.Printf("[ERROR GetRecurringBills] 401 Unauthorized: firebase user not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "firebase user not found in context"})
 		return
 	}
@@ -396,18 +342,18 @@ func GetRecurringBills(c *gin.Context) {
 
 	userRecord, ok := database.DefaultStore.GetUser(user.UID)
 	if !ok || strings.TrimSpace(userRecord.PlaidAccessToken) == "" {
+		log.Printf("[ERROR GetRecurringBills] 400 Bad Request: no plaid access token for UID %s", user.UID)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no plaid access token for this user"})
 		return
 	}
 
 	ctx := context.Background()
-
-	// Pass nil instead of []string{} so account_ids is omitted from the JSON payload
 	req := plaid.NewTransactionsRecurringGetRequest(userRecord.PlaidAccessToken, nil)
 
 	resp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*req).Execute()
 	if err != nil {
 		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
+			log.Printf("[ERROR GetRecurringBills] Plaid API Error [%s]: %s (Type: %s)", plaidErr.ErrorCode, plaidErr.ErrorMessage, plaidErr.ErrorType)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error_code":    plaidErr.ErrorCode,
 				"error_message": plaidErr.ErrorMessage,
@@ -415,34 +361,11 @@ func GetRecurringBills(c *gin.Context) {
 			})
 			return
 		}
+
+		log.Printf("[ERROR GetRecurringBills] 400 Bad Request: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"recurringBills": mapPlaidRecurringStreams(resp.GetOutflowStreams())})
 }
-
-// func GetRecurringBills(c *gin.Context) {
-// 	firebaseUser, exists := c.Get("firebase_user")
-// 	if !exists {
-// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "firebase user not found in context"})
-// 		return
-// 	}
-// 	user := firebaseUser.(*auth.VerifiedFirebaseUser)
-
-// 	userRecord, ok := database.DefaultStore.GetUser(user.UID)
-// 	if !ok || strings.TrimSpace(userRecord.PlaidAccessToken) == "" {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "no plaid access token for this user"})
-// 		return
-// 	}
-
-// 	ctx := context.Background()
-// 	req := plaid.NewTransactionsRecurringGetRequest(userRecord.PlaidAccessToken, []string{})
-// 	resp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*req).Execute()
-// 	if err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-// 		return
-// 	}
-
-// 	c.JSON(http.StatusOK, gin.H{"recurringBills": mapPlaidRecurringStreams(resp.GetOutflowStreams())})
-// }

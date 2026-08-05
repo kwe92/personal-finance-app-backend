@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"time"
 
 	"personal_finance_backend/auth"
 
@@ -15,6 +16,15 @@ type UserRecord struct {
 	Email            string `firestore:"email"`
 	PlaidAccessToken string `firestore:"plaidAccessToken"`
 	IsPlaidLinked    bool   `firestore:"is_plaid_linked"`
+}
+
+type Budget struct {
+	ID        string    `firestore:"id,omitempty" json:"id"`
+	Category  string    `firestore:"category" json:"category"`
+	Maximum   float64   `firestore:"maximum" json:"maximum"`
+	Theme     string    `firestore:"theme" json:"theme"`
+	CreatedAt time.Time `firestore:"createdAt" json:"createdAt"`
+	UpdatedAt time.Time `firestore:"updatedAt" json:"updatedAt"`
 }
 
 type Store struct {
@@ -75,4 +85,70 @@ func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken string) error {
 		{Path: "is_plaid_linked", Value: true},
 	})
 	return err
+}
+
+func (s *Store) GetBudgets(firebaseUID string) ([]Budget, error) {
+	if s.firestoreClient == nil {
+		return nil, errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	docs, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("budgets").Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	budgets := make([]Budget, 0, len(docs))
+	for _, doc := range docs {
+		var budget Budget
+		if err := doc.DataTo(&budget); err != nil {
+			log.Println("warning: Firestore GetBudgets decode failed:", err)
+			continue
+		}
+		budget.ID = doc.Ref.ID
+		budgets = append(budgets, budget)
+	}
+
+	return budgets, nil
+}
+
+func (s *Store) UpdateBudget(firebaseUID string, budgetID string, budget Budget) error {
+	if s.firestoreClient == nil {
+		return errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	budget.UpdatedAt = time.Now()
+
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("budgets").Doc(budgetID).Set(ctx, budget, firestore.MergeAll)
+	return err
+}
+
+func (s *Store) DeleteBudget(firebaseUID string, budgetID string) error {
+	if s.firestoreClient == nil {
+		return errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("budgets").Doc(budgetID).Delete(ctx)
+	return err
+}
+
+func (s *Store) CreateBudget(firebaseUID string, budget Budget) (Budget, error) {
+	if s.firestoreClient == nil {
+		return Budget{}, errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+	budget.CreatedAt = now
+	budget.UpdatedAt = now
+
+	docRef, _, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("budgets").Add(ctx, budget)
+	if err != nil {
+		return Budget{}, err
+	}
+
+	budget.ID = docRef.ID
+	return budget, nil
 }

@@ -7,8 +7,7 @@ import (
 
 func main() {
 	loader.LoadEnv()
-	loader.LoadPlaidConfig()
-
+	loader.InitialConfigs()
 	r := router.SetupRouter()
 
 	if err := r.Run(":" + loader.GetPort()); err != nil {

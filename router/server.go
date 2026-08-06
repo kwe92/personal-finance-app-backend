@@ -32,5 +32,11 @@ func SetupRouter() *gin.Engine {
 	protected.PUT("/budgets/:id", handler.UpdateBudget)
 	protected.DELETE("/budgets/:id", handler.DeleteBudget)
 
+	// Pot endpoints
+	protected.GET("/pots", handler.GetPots)
+	protected.POST("/pots", handler.CreatePot)
+	protected.PUT("/pots/:id", handler.UpdatePot)
+	protected.DELETE("/pots/:id", handler.DeletePot)
+
 	return router
 }

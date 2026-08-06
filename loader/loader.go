@@ -4,9 +4,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/joho/godotenv"
 	"personal_finance_backend/database"
 	"personal_finance_backend/plaid_config"
+
+	"github.com/joho/godotenv"
 )
 
 func LoadEnv() {
@@ -15,7 +16,7 @@ func LoadEnv() {
 	}
 }
 
-func LoadPlaidConfig() {
+func InitialConfigs() {
 	plaid_config.LoadPlaidConfig()
 	database.InitializeStore()
 }

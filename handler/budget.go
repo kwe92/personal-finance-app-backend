@@ -63,13 +63,17 @@ func UpdateBudget(c *gin.Context) {
 		Theme:    payload.Theme,
 	}
 
-	if err := database.DefaultStore.UpdateBudget(user.UID, budgetID, budget); err != nil {
+	updatedBudget, err := database.DefaultStore.UpdateBudget(user.UID, budgetID, budget)
+	if err != nil {
 		log.Printf("[ERROR UpdateBudget] Failed to update budget %s for UID %s: %v", budgetID, user.UID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "budget updated successfully"})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "budget updated successfully",
+		"budget":  updatedBudget,
+	})
 }
 
 func DeleteBudget(c *gin.Context) {

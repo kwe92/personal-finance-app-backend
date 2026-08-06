@@ -87,6 +87,8 @@ func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken string) error {
 	return err
 }
 
+// Budget CRUD
+
 func (s *Store) GetBudgets(firebaseUID string) ([]Budget, error) {
 	if s.firestoreClient == nil {
 		return nil, errors.New("firestore client not initialized")
@@ -161,4 +163,110 @@ func (s *Store) CreateBudget(firebaseUID string, budget Budget) (Budget, error) 
 
 	budget.ID = docRef.ID
 	return budget, nil
+}
+
+// Pots CRUD
+
+type Pot struct {
+	ID        string    `firestore:"id,omitempty" json:"id"`
+	Name      string    `firestore:"name" json:"name"`
+	Target    float64   `firestore:"target" json:"target"`
+	Total     float64   `firestore:"total" json:"total"`
+	Theme     string    `firestore:"theme" json:"theme"`
+	CreatedAt time.Time `firestore:"createdAt,omitempty" json:"createdAt"`
+	UpdatedAt time.Time `firestore:"updatedAt,omitempty" json:"updatedAt"`
+}
+
+func (s *Store) GetPots(firebaseUID string) ([]Pot, error) {
+	if s.firestoreClient == nil {
+		return nil, errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	docs, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("pots").Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	pots := make([]Pot, 0, len(docs))
+	for _, doc := range docs {
+		var pot Pot
+		if err := doc.DataTo(&pot); err != nil {
+			log.Println("warning: Firestore GetPots decode failed:", err)
+			continue
+		}
+		pot.ID = doc.Ref.ID
+		pots = append(pots, pot)
+	}
+
+	return pots, nil
+}
+
+func (s *Store) CreatePot(firebaseUID string, pot Pot) (Pot, error) {
+	if s.firestoreClient == nil {
+		return Pot{}, errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+	pot.CreatedAt = now
+	pot.UpdatedAt = now
+
+	docRef, _, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("pots").Add(ctx, pot)
+	if err != nil {
+		return Pot{}, err
+	}
+
+	pot.ID = docRef.ID
+	return pot, nil
+}
+
+func (s *Store) UpdatePot(firebaseUID string, potID string, pot Pot) (Pot, error) {
+	if s.firestoreClient == nil {
+		return Pot{}, errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	pot.ID = potID
+	pot.UpdatedAt = time.Now()
+
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("pots").Doc(potID).Update(ctx, []firestore.Update{
+		{Path: "name", Value: pot.Name},
+		{Path: "target", Value: pot.Target},
+		{Path: "total", Value: pot.Total},
+		{Path: "theme", Value: pot.Theme},
+		{Path: "updatedAt", Value: pot.UpdatedAt},
+	})
+	if err != nil {
+		return Pot{}, err
+	}
+
+	return pot, nil
+}
+
+func (s *Store) DeletePot(firebaseUID string, potID string) error {
+	if s.firestoreClient == nil {
+		return errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	docRef := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("pots").Doc(potID)
+
+	// Fetch pot to ensure total balance is 0 before allowing deletion
+	docSnap, err := docRef.Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	var pot Pot
+	if err := docSnap.DataTo(&pot); err != nil {
+		return err
+	}
+
+	if pot.Total > 0 {
+		return errors.New("cannot delete pot with remaining funds; withdraw all funds first")
+	}
+
+	_, err = docRef.Delete(ctx)
+	return err
 }

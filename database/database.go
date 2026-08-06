@@ -112,16 +112,26 @@ func (s *Store) GetBudgets(firebaseUID string) ([]Budget, error) {
 	return budgets, nil
 }
 
-func (s *Store) UpdateBudget(firebaseUID string, budgetID string, budget Budget) error {
+func (s *Store) UpdateBudget(firebaseUID string, budgetID string, budget Budget) (Budget, error) {
 	if s.firestoreClient == nil {
-		return errors.New("firestore client not initialized")
+		return Budget{}, errors.New("firestore client not initialized")
 	}
 
 	ctx := context.Background()
+	budget.ID = budgetID
 	budget.UpdatedAt = time.Now()
 
-	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("budgets").Doc(budgetID).Set(ctx, budget, firestore.MergeAll)
-	return err
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("budgets").Doc(budgetID).Update(ctx, []firestore.Update{
+		{Path: "category", Value: budget.Category},
+		{Path: "maximum", Value: budget.Maximum},
+		{Path: "theme", Value: budget.Theme},
+		{Path: "updatedAt", Value: budget.UpdatedAt},
+	})
+	if err != nil {
+		return Budget{}, err
+	}
+
+	return budget, nil
 }
 
 func (s *Store) DeleteBudget(firebaseUID string, budgetID string) error {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"log"
 	"math"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"personal_finance_backend/database"
 	"personal_finance_backend/plaid_config"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/plaid/plaid-go/v12/plaid"
@@ -19,16 +21,17 @@ type SetAccessTokenRequest struct {
 }
 
 type TransactionDTO struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Category  string  `json:"category"`
-	Date      string  `json:"date"`
-	Amount    float64 `json:"amount"`
-	Type      string  `json:"type"`
-	Recurring bool    `json:"recurring"`
-	Frequency string  `json:"frequency,omitempty"`
-	NextDate  string  `json:"nextDate,omitempty"`
-	Status    string  `json:"status,omitempty"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Category     string  `json:"category"`
+	Date         string  `json:"date"`
+	Amount       float64 `json:"amount"`
+	Type         string  `json:"type"`
+	Recurring    bool    `json:"recurring"`
+	Frequency    string  `json:"frequency,omitempty"`
+	NextDate     string  `json:"nextDate,omitempty"`
+	Status       string  `json:"status,omitempty"`
+	DaysUntilDue *int    `json:"daysUntilDue,omitempty"`
 }
 
 type OverviewSummaryDTO struct {
@@ -64,6 +67,78 @@ func normalizeFrequency(frequency plaid.RecurringTransactionFrequency) string {
 	default:
 		return ""
 	}
+}
+
+func calculateNextDate(lastDateStr string, frequency plaid.RecurringTransactionFrequency) (string, time.Time, error) {
+	if strings.TrimSpace(lastDateStr) == "" {
+		return "", time.Time{}, errors.New("empty last date")
+	}
+
+	lastDate, err := time.Parse("2006-01-02", lastDateStr)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	var nextDate time.Time
+	switch frequency {
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_WEEKLY:
+		nextDate = lastDate.AddDate(0, 0, 7)
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_BIWEEKLY:
+		nextDate = lastDate.AddDate(0, 0, 14)
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_SEMI_MONTHLY:
+		nextDate = lastDate.AddDate(0, 0, 15)
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_MONTHLY:
+		nextDate = lastDate.AddDate(0, 1, 0)
+	case plaid.RECURRINGTRANSACTIONFREQUENCY_ANNUALLY:
+		nextDate = lastDate.AddDate(1, 0, 0)
+	default:
+		nextDate = lastDate.AddDate(0, 1, 0)
+	}
+
+	return nextDate.Format("2006-01-02"), nextDate, nil
+}
+
+func determineRecurringStatusAndNextDate(stream plaid.TransactionStream) (status string, nextDateStr string, daysUntilDue *int) {
+	// 1. If stream is inactive, mark as paid
+	if !stream.GetIsActive() {
+		return "paid", stream.GetLastDate(), nil
+	}
+
+	// 2. Resolve Last Date (or First Date as fallback)
+	lastDateStr := stream.GetLastDate()
+	if strings.TrimSpace(lastDateStr) == "" {
+		lastDateStr = stream.GetFirstDate()
+	}
+
+	if strings.TrimSpace(lastDateStr) == "" {
+		return "upcoming", "", nil
+	}
+
+	// 3. Compute next date based on LastDate + Frequency interval
+	nextDateStr, nextDateTime, err := calculateNextDate(lastDateStr, stream.GetFrequency())
+	if err != nil {
+		return "upcoming", lastDateStr, nil
+	}
+
+	// 4. Standardize dates to UTC midnight for exact day calculation
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	targetDate := time.Date(nextDateTime.Year(), nextDateTime.Month(), nextDateTime.Day(), 0, 0, 0, 0, time.UTC)
+
+	// Calculate difference in full days
+	days := int(targetDate.Sub(today).Hours() / 24)
+
+	// 5. Categorization logic
+	switch {
+	case days < 0:
+		status = "past_due"
+	case days <= 7:
+		status = "due_soon"
+	default: // days >= 8
+		status = "upcoming"
+	}
+
+	return status, nextDateStr, &days
 }
 
 func mapPlaidTransactions(transactions []plaid.Transaction) []TransactionDTO {
@@ -130,17 +205,20 @@ func mapPlaidRecurringStreams(streams []plaid.TransactionStream) []TransactionDT
 			amount = stream.AverageAmount.GetAmount()
 		}
 
+		status, nextDate, daysUntilDue := determineRecurringStatusAndNextDate(stream)
+
 		mappedStreams = append(mappedStreams, TransactionDTO{
-			ID:        stream.GetStreamId(),
-			Name:      stream.GetDescription(),
-			Category:  category,
-			Date:      date,
-			Amount:    amount,
-			Type:      "expense",
-			Recurring: true,
-			Frequency: normalizeFrequency(stream.GetFrequency()),
-			NextDate:  date,
-			Status:    "upcoming",
+			ID:           stream.GetStreamId(),
+			Name:         stream.GetDescription(),
+			Category:     category,
+			Date:         date,
+			Amount:       amount,
+			Type:         "expense",
+			Recurring:    true,
+			Frequency:    normalizeFrequency(stream.GetFrequency()),
+			NextDate:     nextDate,
+			Status:       status,
+			DaysUntilDue: daysUntilDue,
 		})
 	}
 
@@ -233,6 +311,7 @@ func GetTransactions(c *gin.Context) {
 	mappedTransactions := mapPlaidTransactions(resp.GetAdded())
 	c.JSON(http.StatusOK, gin.H{"transactions": mappedTransactions})
 }
+
 func GetOverviewSummary(c *gin.Context) {
 	firebaseUser, exists := c.Get("firebase_user")
 	if !exists {

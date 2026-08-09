@@ -10,15 +10,19 @@ import (
 )
 
 type UpdateBudgetRequest struct {
-	Category string  `json:"category" binding:"required"`
-	Maximum  float64 `json:"maximum" binding:"required"`
-	Theme    string  `json:"theme" binding:"required"`
+	Category  string  `json:"category" binding:"required"`
+	Maximum   float64 `json:"maximum" binding:"required"`
+	Theme     string  `json:"theme" binding:"required"`
+	Period    string  `json:"period"`
+	StartDate string  `json:"startDate"`
 }
 
 type CreateBudgetRequest struct {
-	Category string  `json:"category" binding:"required"`
-	Maximum  float64 `json:"maximum" binding:"required"`
-	Theme    string  `json:"theme" binding:"required"`
+	Category  string  `json:"category" binding:"required"`
+	Maximum   float64 `json:"maximum" binding:"required"`
+	Theme     string  `json:"theme" binding:"required"`
+	Period    string  `json:"period"`
+	StartDate string  `json:"startDate"`
 }
 
 func GetBudgets(c *gin.Context) {
@@ -58,9 +62,11 @@ func UpdateBudget(c *gin.Context) {
 	}
 
 	budget := database.Budget{
-		Category: payload.Category,
-		Maximum:  payload.Maximum,
-		Theme:    payload.Theme,
+		Category:  payload.Category,
+		Maximum:   payload.Maximum,
+		Theme:     payload.Theme,
+		Period:    payload.Period,
+		StartDate: payload.StartDate,
 	}
 
 	updatedBudget, err := database.DefaultStore.UpdateBudget(user.UID, budgetID, budget)
@@ -112,9 +118,11 @@ func CreateBudget(c *gin.Context) {
 	}
 
 	budget := database.Budget{
-		Category: payload.Category,
-		Maximum:  payload.Maximum,
-		Theme:    payload.Theme,
+		Category:  payload.Category,
+		Maximum:   payload.Maximum,
+		Theme:     payload.Theme,
+		Period:    payload.Period,
+		StartDate: payload.StartDate,
 	}
 
 	createdBudget, err := database.DefaultStore.CreateBudget(user.UID, budget)

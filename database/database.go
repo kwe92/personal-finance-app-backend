@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"personal_finance_backend/auth"
@@ -23,6 +24,9 @@ type Budget struct {
 	Category  string    `firestore:"category" json:"category"`
 	Maximum   float64   `firestore:"maximum" json:"maximum"`
 	Theme     string    `firestore:"theme" json:"theme"`
+	Period    string    `firestore:"period" json:"period"`
+	StartDate string    `firestore:"startDate" json:"startDate"`
+	EndDate   string    `firestore:"endDate" json:"endDate"`
 	CreatedAt time.Time `firestore:"createdAt" json:"createdAt"`
 	UpdatedAt time.Time `firestore:"updatedAt" json:"updatedAt"`
 }
@@ -87,6 +91,29 @@ func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken string) error {
 	return err
 }
 
+// Calculate EndDate from StartDate + Period
+func CalculateEndDate(startDateStr string, period string) string {
+	parsedDate, err := time.Parse("2006-01-02", startDateStr)
+	if err != nil {
+		parsedDate = time.Now()
+		startDateStr = parsedDate.Format("2006-01-02")
+	}
+
+	var endDate time.Time
+	switch strings.ToLower(period) {
+	case "weekly":
+		endDate = parsedDate.AddDate(0, 0, 6)
+	case "biweekly":
+		endDate = parsedDate.AddDate(0, 0, 13)
+	case "monthly":
+		endDate = parsedDate.AddDate(0, 1, 0).AddDate(0, 0, -1)
+	default: // Default fallback to monthly
+		endDate = parsedDate.AddDate(0, 1, 0).AddDate(0, 0, -1)
+	}
+
+	return endDate.Format("2006-01-02")
+}
+
 // Budget CRUD
 
 func (s *Store) GetBudgets(firebaseUID string) ([]Budget, error) {
@@ -119,6 +146,15 @@ func (s *Store) UpdateBudget(firebaseUID string, budgetID string, budget Budget)
 		return Budget{}, errors.New("firestore client not initialized")
 	}
 
+	if strings.TrimSpace(budget.Period) == "" {
+		budget.Period = "monthly"
+	}
+	if strings.TrimSpace(budget.StartDate) == "" {
+		budget.StartDate = time.Now().Format("2006-01-02")
+	}
+
+	budget.EndDate = CalculateEndDate(budget.StartDate, budget.Period)
+
 	ctx := context.Background()
 	budget.ID = budgetID
 	budget.UpdatedAt = time.Now()
@@ -127,6 +163,9 @@ func (s *Store) UpdateBudget(firebaseUID string, budgetID string, budget Budget)
 		{Path: "category", Value: budget.Category},
 		{Path: "maximum", Value: budget.Maximum},
 		{Path: "theme", Value: budget.Theme},
+		{Path: "period", Value: budget.Period},
+		{Path: "startDate", Value: budget.StartDate},
+		{Path: "endDate", Value: budget.EndDate},
 		{Path: "updatedAt", Value: budget.UpdatedAt},
 	})
 	if err != nil {
@@ -150,6 +189,15 @@ func (s *Store) CreateBudget(firebaseUID string, budget Budget) (Budget, error) 
 	if s.firestoreClient == nil {
 		return Budget{}, errors.New("firestore client not initialized")
 	}
+
+	if strings.TrimSpace(budget.Period) == "" {
+		budget.Period = "monthly"
+	}
+	if strings.TrimSpace(budget.StartDate) == "" {
+		budget.StartDate = time.Now().Format("2006-01-02")
+	}
+
+	budget.EndDate = CalculateEndDate(budget.StartDate, budget.Period)
 
 	ctx := context.Background()
 	now := time.Now()

@@ -15,38 +15,6 @@ import (
 	"github.com/plaid/plaid-go/v12/plaid"
 )
 
-// --- DTOs ---
-
-type CreateLinkTokenRequest struct {
-	UserID string `json:"userId"`
-}
-
-type SetAccessTokenRequest struct {
-	PublicToken string `json:"publicToken" binding:"required"`
-}
-
-type TransactionDTO struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Category     string  `json:"category"`
-	Date         string  `json:"date"`
-	Amount       float64 `json:"amount"`
-	Type         string  `json:"type"`
-	Recurring    bool    `json:"recurring"`
-	Frequency    string  `json:"frequency,omitempty"`
-	NextDate     string  `json:"nextDate,omitempty"`
-	Status       string  `json:"status,omitempty"`
-	DaysUntilDue *int    `json:"daysUntilDue,omitempty"`
-}
-
-type OverviewSummaryDTO struct {
-	Balance        float64 `json:"balance"`
-	Income         float64 `json:"income"`
-	Expenses       float64 `json:"expenses"`
-	Savings        float64 `json:"savings"`
-	RecurringBills float64 `json:"recurringBills"`
-}
-
 // --- Handler Receiver Struct (Dependency Injection) ---
 
 type PlaidHandler struct {
@@ -457,4 +425,36 @@ func summarizeRecurringBills(streams []plaid.TransactionStream) float64 {
 		total += math.Abs(amount)
 	}
 	return total
+}
+
+// --- DTOs ---
+
+type CreateLinkTokenRequest struct {
+	UserID string `json:"userId"`
+}
+
+type SetAccessTokenRequest struct {
+	PublicToken string `json:"publicToken" binding:"required"`
+}
+
+type TransactionDTO struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Category     string  `json:"category"`
+	Date         string  `json:"date"`
+	Amount       float64 `json:"amount"`
+	Type         string  `json:"type"`
+	Recurring    bool    `json:"recurring"`
+	Frequency    string  `json:"frequency,omitempty"`
+	NextDate     string  `json:"nextDate,omitempty"`
+	Status       string  `json:"status,omitempty"`
+	DaysUntilDue *int    `json:"daysUntilDue,omitempty"`
+}
+
+type OverviewSummaryDTO struct {
+	Balance        float64 `json:"balance"`
+	Income         float64 `json:"income"`
+	Expenses       float64 `json:"expenses"`
+	Savings        float64 `json:"savings"`
+	RecurringBills float64 `json:"recurringBills"`
 }

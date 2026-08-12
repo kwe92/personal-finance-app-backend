@@ -16,6 +16,10 @@ import (
 	"github.com/plaid/plaid-go/v12/plaid"
 )
 
+type CreateLinkTokenRequest struct {
+	UserID string `json:"userId"`
+}
+
 type SetAccessTokenRequest struct {
 	PublicToken string `json:"publicToken" binding:"required"`
 }
@@ -240,16 +244,45 @@ func summarizeTransactions(transactions []plaid.Transaction) (income float64, ex
 }
 
 func CreateLinkToken(c *gin.Context) {
+	var reqBody CreateLinkTokenRequest
+
+	// Bind optional request body if provided by frontend
+	_ = c.ShouldBindJSON(&reqBody)
+
+	userID := reqBody.UserID
+	if userID == "" {
+		// Fallback to default if not provided
+		userID = "personal-finance-user"
+	}
+
+	// Build the Plaid User object
+	user := plaid.NewLinkTokenCreateRequestUser(userID)
+
+	// Create Link Token request using Plaid SDK constants
 	request := plaid.NewLinkTokenCreateRequest(
 		"Personal Finance Backend",
 		"en",
-		[]plaid.CountryCode{plaid.CountryCode("US")},
-		*plaid.NewLinkTokenCreateRequestUser("personal-finance-user"),
+		[]plaid.CountryCode{plaid.COUNTRYCODE_US},
+		*user,
 	)
-	request.SetProducts([]plaid.Products{plaid.Products("transactions")})
+	request.SetProducts([]plaid.Products{plaid.PRODUCTS_TRANSACTIONS})
 
+	// Execute API call
 	resp, _, err := plaid_config.Client.PlaidApi.LinkTokenCreate(context.Background()).LinkTokenCreateRequest(*request).Execute()
+
 	if err != nil {
+		// Extract actual detailed Plaid error
+		if plaidErr, pErr := plaid.ToPlaidError(err); pErr == nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error_type":      plaidErr.GetErrorType(),
+				"error_code":      plaidErr.GetErrorCode(),
+				"error_message":   plaidErr.GetErrorMessage(),
+				"display_message": plaidErr.GetDisplayMessage(),
+			})
+			return
+		}
+
+		// Generic fallback error
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

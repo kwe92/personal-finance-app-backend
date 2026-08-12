@@ -9,13 +9,14 @@ import (
 	"github.com/plaid/plaid-go/v12/plaid"
 )
 
-// SetupRouter receives initialized dependencies needed by the handlers.
 func SetupRouter(plaidClient *plaid.APIClient, store database.Store) *gin.Engine {
 	router := gin.Default()
 	router.Use(middleware.CORSMiddleware())
 
-	// Initialize handlers with their dependencies
+	// Initialize handlers with injected dependencies
 	plaidHandler := handler.NewPlaidHandler(plaidClient, store)
+	budgetHandler := handler.NewBudgetHandler(store)
+	potHandler := handler.NewPotHandler(store)
 
 	protected := router.Group("/api")
 	protected.Use(middleware.FirebaseAuthMiddleware())
@@ -25,24 +26,24 @@ func SetupRouter(plaidClient *plaid.APIClient, store database.Store) *gin.Engine
 	// Firebase auth endpoint
 	protected.POST("/verify-firebase-user", handler.VerifyFirebaseUser)
 
-	// Plaid endpoints (bound to plaidHandler receiver methods)
+	// Plaid endpoints
 	protected.POST("/plaid/create-link-token", plaidHandler.CreateLinkToken)
 	protected.POST("/plaid/set-access-token", plaidHandler.SetAccessToken)
 	protected.POST("/plaid/transactions", plaidHandler.GetTransactions)
 	protected.GET("/plaid/overview-summary", plaidHandler.GetOverviewSummary)
 	protected.GET("/plaid/recurring-bills", plaidHandler.GetRecurringBills)
 
-	// Budget endpoints (uncounted until refactored)
-	protected.GET("/budgets", handler.GetBudgets)
-	protected.POST("/budgets", handler.CreateBudget)
-	protected.PUT("/budgets/:id", handler.UpdateBudget)
-	protected.DELETE("/budgets/:id", handler.DeleteBudget)
+	// Budget endpoints
+	protected.GET("/budgets", budgetHandler.GetBudgets)
+	protected.POST("/budgets", budgetHandler.CreateBudget)
+	protected.PUT("/budgets/:id", budgetHandler.UpdateBudget)
+	protected.DELETE("/budgets/:id", budgetHandler.DeleteBudget)
 
-	// Pot endpoints (uncounted until refactored)
-	protected.GET("/pots", handler.GetPots)
-	protected.POST("/pots", handler.CreatePot)
-	protected.PUT("/pots/:id", handler.UpdatePot)
-	protected.DELETE("/pots/:id", handler.DeletePot)
+	// Pot endpoints
+	protected.GET("/pots", potHandler.GetPots)
+	protected.POST("/pots", potHandler.CreatePot)
+	protected.PUT("/pots/:id", potHandler.UpdatePot)
+	protected.DELETE("/pots/:id", potHandler.DeletePot)
 
 	return router
 }

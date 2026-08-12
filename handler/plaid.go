@@ -45,6 +45,20 @@ type OverviewSummaryDTO struct {
 	Savings  float64 `json:"savings"`
 }
 
+func handlePlaidError(c *gin.Context, err error) {
+	if plaidErr, pErr := plaid.ToPlaidError(err); pErr == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error_type":      plaidErr.GetErrorType(),
+			"error_code":      plaidErr.GetErrorCode(),
+			"error_message":   plaidErr.GetErrorMessage(),
+			"display_message": plaidErr.GetDisplayMessage(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+}
+
 func inferTransactionType(amount float64) string {
 	switch {
 	case amount < 0:
@@ -271,19 +285,7 @@ func CreateLinkToken(c *gin.Context) {
 	resp, _, err := plaid_config.Client.PlaidApi.LinkTokenCreate(context.Background()).LinkTokenCreateRequest(*request).Execute()
 
 	if err != nil {
-		// Extract actual detailed Plaid error
-		if plaidErr, pErr := plaid.ToPlaidError(err); pErr == nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error_type":      plaidErr.GetErrorType(),
-				"error_code":      plaidErr.GetErrorCode(),
-				"error_message":   plaidErr.GetErrorMessage(),
-				"display_message": plaidErr.GetDisplayMessage(),
-			})
-			return
-		}
-
-		// Generic fallback error
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -293,7 +295,7 @@ func CreateLinkToken(c *gin.Context) {
 func SetAccessToken(c *gin.Context) {
 	var payload SetAccessTokenRequest
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -301,7 +303,7 @@ func SetAccessToken(c *gin.Context) {
 	exchangeRequest := plaid.NewItemPublicTokenExchangeRequest(payload.PublicToken)
 	resp, _, err := plaid_config.Client.PlaidApi.ItemPublicTokenExchange(ctx).ItemPublicTokenExchangeRequest(*exchangeRequest).Execute()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -312,7 +314,7 @@ func SetAccessToken(c *gin.Context) {
 	}
 	user := firebaseUser.(*auth.VerifiedFirebaseUser)
 	if err := database.DefaultStore.UpdatePlaidAccessToken(user.UID, resp.GetAccessToken()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -337,7 +339,7 @@ func GetTransactions(c *gin.Context) {
 	req := plaid.NewTransactionsSyncRequest(userRecord.PlaidAccessToken)
 	resp, _, err := plaid_config.Client.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*req).Execute()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -367,17 +369,7 @@ func GetOverviewSummary(c *gin.Context) {
 	balanceReq := plaid.NewAccountsBalanceGetRequest(userRecord.PlaidAccessToken)
 	balanceResp, _, err := plaid_config.Client.PlaidApi.AccountsBalanceGet(ctx).AccountsBalanceGetRequest(*balanceReq).Execute()
 	if err != nil {
-		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
-			log.Printf("[ERROR GetOverviewSummary - Balance] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error_code":    plaidErr.ErrorCode,
-				"error_message": plaidErr.ErrorMessage,
-				"error_type":    plaidErr.ErrorType,
-			})
-			return
-		}
-		log.Printf("[ERROR GetOverviewSummary - Balance]: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -391,17 +383,7 @@ func GetOverviewSummary(c *gin.Context) {
 	transactionsReq := plaid.NewTransactionsSyncRequest(userRecord.PlaidAccessToken)
 	transactionsResp, _, err := plaid_config.Client.PlaidApi.TransactionsSync(ctx).TransactionsSyncRequest(*transactionsReq).Execute()
 	if err != nil {
-		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
-			log.Printf("[ERROR GetOverviewSummary - TransactionsSync] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error_code":    plaidErr.ErrorCode,
-				"error_message": plaidErr.ErrorMessage,
-				"error_type":    plaidErr.ErrorType,
-			})
-			return
-		}
-		log.Printf("[ERROR GetOverviewSummary - TransactionsSync]: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -411,17 +393,7 @@ func GetOverviewSummary(c *gin.Context) {
 	recurringReq := plaid.NewTransactionsRecurringGetRequest(userRecord.PlaidAccessToken, nil)
 	recurringResp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*recurringReq).Execute()
 	if err != nil {
-		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
-			log.Printf("[ERROR GetOverviewSummary - Recurring] Plaid Error [%s]: %s", plaidErr.ErrorCode, plaidErr.ErrorMessage)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error_code":    plaidErr.ErrorCode,
-				"error_message": plaidErr.ErrorMessage,
-				"error_type":    plaidErr.ErrorType,
-			})
-			return
-		}
-		log.Printf("[ERROR GetOverviewSummary - Recurring]: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 
@@ -464,18 +436,7 @@ func GetRecurringBills(c *gin.Context) {
 
 	resp, _, err := plaid_config.Client.PlaidApi.TransactionsRecurringGet(ctx).TransactionsRecurringGetRequest(*req).Execute()
 	if err != nil {
-		if plaidErr, parseErr := plaid.ToPlaidError(err); parseErr == nil {
-			log.Printf("[ERROR GetRecurringBills] Plaid API Error [%s]: %s (Type: %s)", plaidErr.ErrorCode, plaidErr.ErrorMessage, plaidErr.ErrorType)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error_code":    plaidErr.ErrorCode,
-				"error_message": plaidErr.ErrorMessage,
-				"error_type":    plaidErr.ErrorType,
-			})
-			return
-		}
-
-		log.Printf("[ERROR GetRecurringBills] 400 Bad Request: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handlePlaidError(c, err)
 		return
 	}
 

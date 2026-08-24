@@ -15,11 +15,9 @@ import (
 	"github.com/plaid/plaid-go/v12/plaid"
 )
 
-// --- Handler Receiver Struct (Dependency Injection) ---
-
 type PlaidHandler struct {
 	plaidClient *plaid.APIClient
-	store       database.Store // assuming database.Store is your interface, or concrete type pointer
+	store       database.Store
 }
 
 func NewPlaidHandler(client *plaid.APIClient, store database.Store) *PlaidHandler {
@@ -28,8 +26,6 @@ func NewPlaidHandler(client *plaid.APIClient, store database.Store) *PlaidHandle
 		store:       store,
 	}
 }
-
-// --- HTTP Handlers ---
 
 func (h *PlaidHandler) CreateLinkToken(c *gin.Context) {
 	var reqBody CreateLinkTokenRequest
@@ -185,8 +181,6 @@ func (h *PlaidHandler) GetRecurringBills(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"recurringBills": mapPlaidRecurringStreams(resp.GetOutflowStreams())})
 }
 
-// --- Context & Auth Helpers ---
-
 func (h *PlaidHandler) extractAuthUser(c *gin.Context) (*auth.VerifiedFirebaseUser, bool) {
 	val, exists := c.Get("firebase_user")
 	if !exists {
@@ -220,8 +214,6 @@ func (h *PlaidHandler) getAccessTokenForUser(c *gin.Context) (string, bool) {
 
 	return userRecord.PlaidAccessToken, true
 }
-
-// --- Pure Domain / Mapping Helpers ---
 
 func handlePlaidError(c *gin.Context, err error) {
 	if plaidErr, pErr := plaid.ToPlaidError(err); pErr == nil {
@@ -426,8 +418,6 @@ func summarizeRecurringBills(streams []plaid.TransactionStream) float64 {
 	}
 	return total
 }
-
-// --- DTOs ---
 
 type CreateLinkTokenRequest struct {
 	UserID string `json:"userId"`

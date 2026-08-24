@@ -10,8 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// --- Handler Receiver Struct (Dependency Injection) ---
-
 type PotHandler struct {
 	store database.Store
 }
@@ -21,8 +19,6 @@ func NewPotHandler(store database.Store) *PotHandler {
 		store: store,
 	}
 }
-
-// --- HTTP Handlers ---
 
 func (h *PotHandler) GetPots(c *gin.Context) {
 	user, ok := h.extractAuthUser(c)
@@ -120,8 +116,6 @@ func (h *PotHandler) DeletePot(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "pot deleted successfully"})
 }
 
-// --- Context & Auth Helpers ---
-
 func (h *PotHandler) extractAuthUser(c *gin.Context) (*auth.VerifiedFirebaseUser, bool) {
 	val, exists := c.Get("firebase_user")
 	if !exists {
@@ -139,8 +133,6 @@ func (h *PotHandler) extractAuthUser(c *gin.Context) (*auth.VerifiedFirebaseUser
 
 	return user, true
 }
-
-// --- DTOs ---
 
 type CreatePotRequest struct {
 	Name   string  `json:"name" binding:"required"`

@@ -10,8 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// --- Handler Receiver Struct (Dependency Injection) ---
-
 type BudgetHandler struct {
 	store database.Store
 }
@@ -21,8 +19,6 @@ func NewBudgetHandler(store database.Store) *BudgetHandler {
 		store: store,
 	}
 }
-
-// --- HTTP Handlers ---
 
 func (h *BudgetHandler) GetBudgets(c *gin.Context) {
 	user, ok := h.extractAuthUser(c)
@@ -122,8 +118,6 @@ func (h *BudgetHandler) DeleteBudget(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "budget deleted successfully"})
 }
 
-// --- Context & Auth Helpers ---
-
 func (h *BudgetHandler) extractAuthUser(c *gin.Context) (*auth.VerifiedFirebaseUser, bool) {
 	val, exists := c.Get("firebase_user")
 	if !exists {
@@ -141,8 +135,6 @@ func (h *BudgetHandler) extractAuthUser(c *gin.Context) (*auth.VerifiedFirebaseU
 
 	return user, true
 }
-
-// --- DTOs ---
 
 type CreateBudgetRequest struct {
 	Category  string  `json:"category" binding:"required"`

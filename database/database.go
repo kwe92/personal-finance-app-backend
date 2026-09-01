@@ -31,6 +31,21 @@ type Budget struct {
 	UpdatedAt time.Time `firestore:"updatedAt" json:"updatedAt"`
 }
 
+type Pot struct {
+	ID        string    `firestore:"id,omitempty" json:"id"`
+	Name      string    `firestore:"name" json:"name"`
+	Target    float64   `firestore:"target" json:"target"`
+	Total     float64   `firestore:"total" json:"total"`
+	Theme     string    `firestore:"theme" json:"theme"`
+	CreatedAt time.Time `firestore:"createdAt,omitempty" json:"createdAt"`
+	UpdatedAt time.Time `firestore:"updatedAt,omitempty" json:"updatedAt"`
+}
+
+type UserPreferences struct {
+	MonthlySpendingTarget float64   `firestore:"monthly_spending_target" json:"monthlySpendingTarget"`
+	UpdatedAt             time.Time `firestore:"updatedAt" json:"updatedAt"`
+}
+
 type Store struct {
 	firestoreClient *firestore.Client
 }
@@ -215,16 +230,6 @@ func (s *Store) CreateBudget(firebaseUID string, budget Budget) (Budget, error) 
 
 // Pots CRUD
 
-type Pot struct {
-	ID        string    `firestore:"id,omitempty" json:"id"`
-	Name      string    `firestore:"name" json:"name"`
-	Target    float64   `firestore:"target" json:"target"`
-	Total     float64   `firestore:"total" json:"total"`
-	Theme     string    `firestore:"theme" json:"theme"`
-	CreatedAt time.Time `firestore:"createdAt,omitempty" json:"createdAt"`
-	UpdatedAt time.Time `firestore:"updatedAt,omitempty" json:"updatedAt"`
-}
-
 func (s *Store) GetPots(firebaseUID string) ([]Pot, error) {
 	if s.firestoreClient == nil {
 		return nil, errors.New("firestore client not initialized")
@@ -300,7 +305,6 @@ func (s *Store) DeletePot(firebaseUID string, potID string) error {
 	ctx := context.Background()
 	docRef := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("pots").Doc(potID)
 
-	// Fetch pot to ensure total balance is 0 before allowing deletion
 	docSnap, err := docRef.Get(ctx)
 	if err != nil {
 		return err
@@ -317,4 +321,40 @@ func (s *Store) DeletePot(firebaseUID string, potID string) error {
 
 	_, err = docRef.Delete(ctx)
 	return err
+}
+
+// User Preferences
+
+func (s *Store) GetPreferences(firebaseUID string) (UserPreferences, error) {
+	if s.firestoreClient == nil {
+		return UserPreferences{}, errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	doc, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("preferences").Doc("settings").Get(ctx)
+	if err != nil {
+		return UserPreferences{MonthlySpendingTarget: 0}, nil
+	}
+
+	var prefs UserPreferences
+	if err := doc.DataTo(&prefs); err != nil {
+		return UserPreferences{}, err
+	}
+	return prefs, nil
+}
+
+func (s *Store) UpdatePreferences(firebaseUID string, prefs UserPreferences) (UserPreferences, error) {
+	if s.firestoreClient == nil {
+		return UserPreferences{}, errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	prefs.UpdatedAt = time.Now()
+
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Collection("preferences").Doc("settings").Set(ctx, prefs)
+	if err != nil {
+		return UserPreferences{}, err
+	}
+
+	return prefs, nil
 }

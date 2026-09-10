@@ -57,6 +57,42 @@ func (h *PlaidHandler) CreateLinkToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"linkToken": resp.GetLinkToken()})
 }
 
+func (h *PlaidHandler) CreateUpdateLinkToken(c *gin.Context) {
+	user, ok := h.extractAuthUser(c)
+
+	if !ok {
+		return
+	}
+
+	accessToken, ok := h.getAccessTokenForUser(c)
+
+	if !ok {
+		return
+	}
+
+	plaidUser := plaid.NewLinkTokenCreateRequestUser(user.UID)
+
+	request := plaid.NewLinkTokenCreateRequest(
+		"Personal Finance Backend",
+		"en",
+		[]plaid.CountryCode{plaid.COUNTRYCODE_US},
+		*plaidUser,
+	)
+
+	request.SetAccessToken(accessToken)
+
+	resp, _, err := h.plaidClient.PlaidApi.LinkTokenCreate(c.Request.Context()).
+		LinkTokenCreateRequest(*request).
+		Execute()
+
+	if err != nil {
+		handlePlaidError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"linkToken": resp.GetLinkToken()})
+}
+
 func (h *PlaidHandler) SetAccessToken(c *gin.Context) {
 	var payload SetAccessTokenRequest
 	if err := c.ShouldBindJSON(&payload); err != nil {

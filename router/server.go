@@ -29,6 +29,7 @@ func SetupRouter(plaidClient *plaid.APIClient, store database.Store) *gin.Engine
 
 	// Plaid endpoints
 	protected.POST("/plaid/create-link-token", plaidHandler.CreateLinkToken)
+	protected.POST("/plaid/create-update-link-token", plaidHandler.CreateUpdateLinkToken)
 	protected.POST("/plaid/set-access-token", plaidHandler.SetAccessToken)
 	protected.POST("/plaid/transactions", plaidHandler.GetTransactions)
 	protected.GET("/plaid/overview-summary", plaidHandler.GetOverviewSummary)

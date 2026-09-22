@@ -10,11 +10,13 @@ import (
 	"personal_finance_backend/auth"
 
 	"cloud.google.com/go/firestore"
+	firebaseauth "firebase.google.com/go/v4/auth"
 )
 
 type UserRecord struct {
 	FirebaseUID      string `firestore:"firebaseUID"`
 	Email            string `firestore:"email"`
+	DisplayName      string `firestore:"displayName,omitempty"`
 	PlaidAccessToken string `firestore:"plaidAccessToken"`
 	IsPlaidLinked    bool   `firestore:"is_plaid_linked"`
 }
@@ -48,12 +50,13 @@ type UserPreferences struct {
 
 type Store struct {
 	firestoreClient *firestore.Client
+	authClient      *firebaseauth.Client
 }
 
 var DefaultStore = &Store{}
 
 func InitializeStore() {
-	if DefaultStore.firestoreClient != nil {
+	if DefaultStore.firestoreClient != nil && DefaultStore.authClient != nil {
 		return
 	}
 
@@ -64,13 +67,24 @@ func InitializeStore() {
 	}
 
 	ctx := context.Background()
-	client, err := app.Firestore(ctx)
-	if err != nil {
-		log.Println("warning: unable to initialize Firestore client:", err)
-		return
+
+	if DefaultStore.firestoreClient == nil {
+		client, err := app.Firestore(ctx)
+		if err != nil {
+			log.Println("warning: unable to initialize Firestore client:", err)
+			return
+		}
+		DefaultStore.firestoreClient = client
 	}
 
-	DefaultStore.firestoreClient = client
+	if DefaultStore.authClient == nil {
+		authClient, err := app.Auth(ctx)
+		if err != nil {
+			log.Println("warning: unable to initialize Firebase Auth client:", err)
+			return
+		}
+		DefaultStore.authClient = authClient
+	}
 }
 
 func (s *Store) GetUser(firebaseUID string) (UserRecord, bool) {
@@ -357,4 +371,48 @@ func (s *Store) UpdatePreferences(firebaseUID string, prefs UserPreferences) (Us
 	}
 
 	return prefs, nil
+}
+
+// User Profile & Credential Management
+
+func (s *Store) UpdateUserDisplayName(firebaseUID string, displayName string) error {
+	if s.firestoreClient == nil {
+		return errors.New("firestore client not initialized")
+	}
+
+	if s.authClient == nil {
+		authClient, err := auth.NewAuthClient()
+		if err != nil {
+			return err
+		}
+		s.authClient = authClient
+	}
+
+	ctx := context.Background()
+
+	params := (&firebaseauth.UserToUpdate{}).DisplayName(displayName)
+	if _, err := s.authClient.UpdateUser(ctx, firebaseUID, params); err != nil {
+		return err
+	}
+
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Set(ctx, map[string]interface{}{
+		"displayName": displayName,
+	}, firestore.MergeAll)
+	return err
+}
+
+func (s *Store) UpdateUserPassword(firebaseUID string, newPassword string) error {
+	if s.authClient == nil {
+		authClient, err := auth.NewAuthClient()
+		if err != nil {
+			return err
+		}
+		s.authClient = authClient
+	}
+
+	ctx := context.Background()
+
+	params := (&firebaseauth.UserToUpdate{}).Password(newPassword)
+	_, err := s.authClient.UpdateUser(ctx, firebaseUID, params)
+	return err
 }

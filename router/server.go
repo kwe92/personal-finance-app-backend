@@ -18,6 +18,7 @@ func SetupRouter(plaidClient *plaid.APIClient, store database.Store) *gin.Engine
 	budgetHandler := handler.NewBudgetHandler(store)
 	potHandler := handler.NewPotHandler(store)
 	preferenceHandler := handler.NewPreferenceHandler(store)
+	settingsHandler := handler.NewSettingsHandler(store)
 
 	protected := router.Group("/api")
 	protected.Use(middleware.FirebaseAuthMiddleware())
@@ -50,6 +51,10 @@ func SetupRouter(plaidClient *plaid.APIClient, store database.Store) *gin.Engine
 	// Preference endpoints
 	protected.GET("/preferences", preferenceHandler.GetPreferences)
 	protected.PUT("/preferences", preferenceHandler.UpdatePreferences)
+
+	// User endpoints
+	protected.PUT("/user/name", settingsHandler.UpdateName)
+	protected.PUT("/user/password", settingsHandler.UpdatePassword)
 
 	return router
 }

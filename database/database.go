@@ -122,6 +122,20 @@ func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken, institutionName
 	return err
 }
 
+func (s *Store) RemovePlaidConnection(firebaseUID string) error {
+	if s.firestoreClient == nil {
+		return errors.New("firestore client not initialized")
+	}
+
+	ctx := context.Background()
+	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Update(ctx, []firestore.Update{
+		{Path: "plaidAccessToken", Value: firestore.Delete},
+		{Path: "is_plaid_linked", Value: false},
+		{Path: "institution_name", Value: firestore.Delete},
+	})
+	return err
+}
+
 // Calculate EndDate from StartDate + Period
 func CalculateEndDate(startDateStr string, period string) string {
 	parsedDate, err := time.Parse("2006-01-02", startDateStr)

@@ -114,7 +114,7 @@ func (h *PlaidHandler) SetAccessToken(c *gin.Context) {
 		return
 	}
 
-	if err := h.store.UpdatePlaidAccessToken(user.UID, resp.GetAccessToken()); err != nil {
+	if err := h.store.UpdatePlaidAccessToken(user.UID, resp.GetAccessToken(), payload.InstitutionName); err != nil {
 		handlePlaidError(c, err)
 		return
 	}
@@ -123,6 +123,36 @@ func (h *PlaidHandler) SetAccessToken(c *gin.Context) {
 		"message":     "plaid access token stored",
 		"accessToken": resp.GetAccessToken(),
 	})
+}
+
+func (h *PlaidHandler) DisconnectBank(c *gin.Context) {
+	user, ok := h.extractAuthUser(c)
+	if !ok {
+		return
+	}
+
+	accessToken, ok := h.getAccessTokenForUser(c)
+	if !ok {
+		return
+	}
+
+	req := plaid.NewItemRemoveRequest(accessToken)
+	_, _, err := h.plaidClient.PlaidApi.ItemRemove(c.Request.Context()).
+		ItemRemoveRequest(*req).
+		Execute()
+
+	if err != nil {
+		handlePlaidError(c, err)
+		return
+	}
+
+	if err := h.store.RemovePlaidConnection(user.UID); err != nil {
+		log.Printf("[ERROR] Failed to remove Plaid connection in DB for user %s: %v", user.UID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update database."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Bank disconnected successfully."})
 }
 
 func (h *PlaidHandler) GetTransactions(c *gin.Context) {
@@ -460,7 +490,8 @@ type CreateLinkTokenRequest struct {
 }
 
 type SetAccessTokenRequest struct {
-	PublicToken string `json:"publicToken" binding:"required"`
+	PublicToken     string `json:"publicToken" binding:"required"`
+	InstitutionName string `json:"institution_name"`
 }
 
 type TransactionDTO struct {

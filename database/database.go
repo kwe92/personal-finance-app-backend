@@ -19,6 +19,7 @@ type UserRecord struct {
 	DisplayName      string `firestore:"displayName,omitempty"`
 	PlaidAccessToken string `firestore:"plaidAccessToken"`
 	IsPlaidLinked    bool   `firestore:"is_plaid_linked"`
+	InstitutionName  string `firestore:"institution_name,omitempty"`
 }
 
 type Budget struct {
@@ -107,7 +108,7 @@ func (s *Store) GetUser(firebaseUID string) (UserRecord, bool) {
 	return user, true
 }
 
-func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken string) error {
+func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken, institutionName string) error {
 	if s.firestoreClient == nil {
 		return errors.New("firestore client not initialized")
 	}
@@ -116,6 +117,7 @@ func (s *Store) UpdatePlaidAccessToken(firebaseUID, accessToken string) error {
 	_, err := s.firestoreClient.Collection("users").Doc(firebaseUID).Update(ctx, []firestore.Update{
 		{Path: "plaidAccessToken", Value: accessToken},
 		{Path: "is_plaid_linked", Value: true},
+		{Path: "institution_name", Value: institutionName},
 	})
 	return err
 }

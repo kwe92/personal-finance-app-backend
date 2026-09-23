@@ -114,7 +114,7 @@ func (h *PlaidHandler) SetAccessToken(c *gin.Context) {
 		return
 	}
 
-	if err := h.store.UpdatePlaidAccessToken(user.UID, resp.GetAccessToken()); err != nil {
+	if err := h.store.UpdatePlaidAccessToken(user.UID, resp.GetAccessToken(), payload.InstitutionName); err != nil {
 		handlePlaidError(c, err)
 		return
 	}
@@ -460,7 +460,8 @@ type CreateLinkTokenRequest struct {
 }
 
 type SetAccessTokenRequest struct {
-	PublicToken string `json:"publicToken" binding:"required"`
+	PublicToken     string `json:"publicToken" binding:"required"`
+	InstitutionName string `json:"institution_name"`
 }
 
 type TransactionDTO struct {

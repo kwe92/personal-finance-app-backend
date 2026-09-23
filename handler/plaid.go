@@ -125,6 +125,36 @@ func (h *PlaidHandler) SetAccessToken(c *gin.Context) {
 	})
 }
 
+func (h *PlaidHandler) DisconnectBank(c *gin.Context) {
+	user, ok := h.extractAuthUser(c)
+	if !ok {
+		return
+	}
+
+	accessToken, ok := h.getAccessTokenForUser(c)
+	if !ok {
+		return
+	}
+
+	req := plaid.NewItemRemoveRequest(accessToken)
+	_, _, err := h.plaidClient.PlaidApi.ItemRemove(c.Request.Context()).
+		ItemRemoveRequest(*req).
+		Execute()
+
+	if err != nil {
+		handlePlaidError(c, err)
+		return
+	}
+
+	if err := h.store.RemovePlaidConnection(user.UID); err != nil {
+		log.Printf("[ERROR] Failed to remove Plaid connection in DB for user %s: %v", user.UID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update database."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Bank disconnected successfully."})
+}
+
 func (h *PlaidHandler) GetTransactions(c *gin.Context) {
 	accessToken, ok := h.getAccessTokenForUser(c)
 	if !ok {

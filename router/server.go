@@ -32,6 +32,7 @@ func SetupRouter(plaidClient *plaid.APIClient, store database.Store) *gin.Engine
 	protected.POST("/plaid/create-link-token", plaidHandler.CreateLinkToken)
 	protected.POST("/plaid/create-update-link-token", plaidHandler.CreateUpdateLinkToken)
 	protected.POST("/plaid/set-access-token", plaidHandler.SetAccessToken)
+	protected.DELETE("/plaid/disconnect", plaidHandler.DisconnectBank)
 	protected.POST("/plaid/transactions", plaidHandler.GetTransactions)
 	protected.GET("/plaid/overview-summary", plaidHandler.GetOverviewSummary)
 	protected.GET("/plaid/recurring-bills", plaidHandler.GetRecurringBills)
